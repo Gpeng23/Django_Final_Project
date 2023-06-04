@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.http import HttpResponseRedirect
 # <HINT> Import any new Models here
-from .models import Course, Enrollment
+from .models import Course, Enrollment, Submission, Choice
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
@@ -134,3 +134,53 @@ def enroll(request, course_id):
 
 
 
+def extract_answers(request):
+    submitted_answers = []
+    for key in request.POST:
+        if key.startswith('choice'):
+            value = request.POST[key]
+            choice_id = int(value)
+            submitted_answers.append(choice_id)
+    return submitted_answers
+
+def submit_exam(request, course_id):
+    user = request.user
+    course = get_object_or_404(Course, pk=course_id)
+    enrollment = get_object_or_404(Enrollment, user=user, course=course)
+
+    # Create a new submission object
+    submission = Submission.objects.create(enrollment=enrollment)
+
+    # Get the selected choices
+    selected_choices = extract_answers(request)
+
+    # Add each selected choice to the submission
+    for choice_id in selected_choices:
+        choice = get_object_or_404(Choice, pk=choice_id)
+        submission.choices.add(choice)
+
+    # Redirect to the exam result page
+    return HttpResponseRedirect(reverse('onlinecourse:show_exam_result', args=(course_id, submission.id)))
+
+def show_exam_result(request, course_id, submission_id):
+    course = get_object_or_404(Course, pk=course_id)
+    submission = get_object_or_404(Submission, pk=submission_id)
+
+    # Get the selected choices
+    selected_choices = submission.choices.all()
+
+    # Initialize the total score
+    total_score = 0
+
+    # For each selected choice, check if it is correct and update the total score
+    for choice in selected_choices:
+        if choice.is_correct:
+            total_score += choice.question.grade
+
+    # Pass the total score and other necessary data to the template
+    context = {
+        'course': course,
+        'submission': submission,
+        'total_score': total_score,
+    }
+    return render(request, 'onlinecourse/exam_result.html', context)
